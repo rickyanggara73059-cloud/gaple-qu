@@ -1,4 +1,4 @@
-﻿import React, { useRef, useEffect } from 'react';
+﻿import React, { useRef, useEffect, useState } from 'react';
 import { PlacedTile } from '../types/domino';
 import { DominoTile } from './DominoTile';
 import { ArrowLeft, ArrowRight, ShieldCheck, Layers } from 'lucide-react';
@@ -27,16 +27,44 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
   boneyardCount,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chainRef = useRef<HTMLDivElement>(null);
+  const [chainScale, setChainScale] = useState(1);
 
-  // Auto-center scroll on board updates
+  // Auto-fit the complete domino chain inside the visible board.
+  // No horizontal dragging is needed, even when the chain becomes long.
   useEffect(() => {
-    if (containerRef.current) {
-      const el = containerRef.current;
-      el.scrollTo({
-        left: (el.scrollWidth - el.clientWidth) / 2,
-        behavior: 'smooth',
-      });
+    const container = containerRef.current;
+    const chainEl = chainRef.current;
+
+    if (!container || !chainEl || chain.length === 0) {
+      setChainScale(1);
+      return;
     }
+
+    const updateScale = () => {
+      const availableWidth = Math.max(0, container.clientWidth - 16);
+      const naturalWidth = chainEl.scrollWidth;
+
+      if (naturalWidth <= 0 || availableWidth <= 0) {
+        return;
+      }
+
+      const nextScale = Math.min(1, availableWidth / naturalWidth);
+      setChainScale(Number(nextScale.toFixed(4)));
+    };
+
+    updateScale();
+
+    const resizeObserver = new ResizeObserver(updateScale);
+    resizeObserver.observe(container);
+    resizeObserver.observe(chainEl);
+
+    window.addEventListener('resize', updateScale);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateScale);
+    };
   }, [chain.length]);
 
   return (
@@ -87,9 +115,17 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
       {/* Main Domino Train Track */}
       <div
         ref={containerRef}
-        className="relative z-10 w-full min-w-0 flex-1 flex items-center px-1 sm:px-8 md:px-16 overflow-x-auto overflow-y-visible overscroll-x-contain touch-pan-x no-scrollbar scroll-smooth py-2"
+        className="relative z-10 w-full min-w-0 flex-1 flex items-center justify-center overflow-hidden py-2 px-1 sm:px-4 md:px-8"
       >
-        <div className="flex w-max min-w-max shrink-0 items-center mx-auto px-3 sm:px-0 py-2">
+        <div
+  ref={chainRef}
+  className="flex w-max min-w-max shrink-0 items-center px-3 sm:px-0 py-2"
+  style={{
+    transform: `scale(${chainScale})`,
+    transformOrigin: 'center center',
+    willChange: 'transform',
+  }}
+>
           {/* Left End Drop Target Button */}
           {chain.length > 0 && isMyTurn && selectedTile && canPlayLeft && (
             <button
@@ -224,4 +260,5 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
     </div>
   );
 };
+
 
