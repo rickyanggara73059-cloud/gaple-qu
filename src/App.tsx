@@ -1078,6 +1078,45 @@ export default function App() {
     });
   };
 
+  const handleLeaveRoom = async () => {
+    if (!roomId) return;
+
+    try {
+      await leaveGapleRoom(roomId);
+
+      setRoomId(null);
+      setRoomCode('');
+      setRoomTargetScore(500);
+      setLocalSeatIndex(0);
+      setPlayers([null, null, null, null, null]);
+      setGameStatus('WAITING');
+      setBoardChain([]);
+      setHeadValue(null);
+      setTailValue(null);
+      setBoneyard([]);
+      setCurrentTurnSeat(0);
+      setTurnTimeLeft(TURN_TIME_LIMIT);
+      setSelectedTile(null);
+      setConsecutivePasses(0);
+      setRoundNumber(1);
+      setWinner(null);
+      setAllHandsCache({});
+      setIsResultOpen(false);
+      setIsShareModalOpen(false);
+      setIsJoinPromptOpen(false);
+      setIsLobbyOpen(true);
+      setMessage('Kamu keluar dari room.');
+
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Gagal keluar dari room.'
+      );
+    }
+  };
+
   // Local player hand and playable calculation
   const localPlayer = players[localSeatIndex] || null;
   const localHand = allHandsCache[localSeatIndex] || localPlayer?.hand || [];
@@ -1097,7 +1136,7 @@ export default function App() {
   const canPlaySelectedRight = selectedPlayableInfo?.canPlayRight ?? false;
 
   return (
-    <div className="relative w-screen h-screen bg-[#070b0e] text-slate-100 flex flex-col overflow-hidden select-none">
+    <div className="relative w-screen h-[100dvh] min-h-0 bg-[#070b0e] text-slate-100 flex flex-col overflow-hidden select-none">
       {/* 1. TOP BAR NAVIGATION (RESPONSIVE) */}
       <header className="h-12 sm:h-14 px-2 sm:px-4 md:px-6 bg-slate-950/95 border-b border-slate-800/80 flex items-center justify-between z-30 shrink-0">
         {/* Zone 1: Wordmark & Room Code */}
@@ -1187,6 +1226,16 @@ export default function App() {
             )}
           </button>
 
+          {/* Leave Room */}
+          <button
+            type="button"
+            onClick={() => void handleLeaveRoom()}
+            className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-red-950/80 border border-red-500/40 text-red-300 hover:bg-red-900/80 hover:text-red-200 cursor-pointer active:scale-95 transition-all shrink-0"
+            title="Keluar dari room"
+          >
+            <span className="text-[9px] sm:text-xs font-bold">Keluar</span>
+          </button>
+
           {/* Room Settings */}
           <button
             onClick={() => setIsLobbyOpen(true)}
@@ -1199,9 +1248,9 @@ export default function App() {
       </header>
 
       {/* 2. REALISTIC DOMINO TABLE ARENA (COMPACT RESPONSIVE VIEWPORT) */}
-      <main className="relative flex-1 flex flex-col items-center justify-between p-1 sm:p-3 md:p-6 overflow-hidden">
+      <main className="relative flex-1 min-h-0 flex flex-col items-center justify-between p-1 sm:p-3 md:p-6 overflow-hidden">
         {/* Table Felt Surface Container */}
-        <div className="relative w-full h-full max-w-[1380px] rounded-[28px] sm:rounded-[50px] md:rounded-[90px] leather-border table-felt-pattern border-[8px] sm:border-[14px] md:border-[20px] border-[#251509] flex flex-col justify-between p-2 sm:p-4 md:p-6 overflow-hidden shadow-2xl">
+        <div className="relative w-full h-full min-h-0 max-w-[1380px] rounded-[28px] sm:rounded-[50px] md:rounded-[90px] leather-border table-felt-pattern border-[8px] sm:border-[14px] md:border-[20px] border-[#251509] flex flex-col justify-between p-2 sm:p-4 md:p-6 overflow-hidden shadow-2xl">
           {/* Subtle Felt Texture Image Overlay */}
           <img
             src="/src/assets/images/domino_table_felt_1790137574026.jpg"
@@ -1640,6 +1689,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
