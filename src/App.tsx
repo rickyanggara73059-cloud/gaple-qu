@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from './lib/supabase';
 import {
   Tile,
   PlacedTile,
@@ -289,11 +290,73 @@ export default function App() {
 
   // Active players count (non-null)
   const activeHumanPlayers = players.filter((p): p is Player => p !== null);
+  // ==========================================================
+  // GAME START REALTIME CHANNEL
+  // ==========================================================
+
+  const gameChannelRef =
+    useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const isLocalHost = localSeatIndex === 0;
+
+  useEffect(() => {
+    if (!roomId) return;
+
+    const channel = supabase.channel(`gaple-game-${roomId}`, {
+      config: {
+        broadcast: {
+          self: false,
+        },
+      },
+    });
+
+    gameChannelRef.current = channel;
+
+    channel.on(
+      'broadcast',
+      { event: 'game_state' },
+      ({ payload }) => {
+        if (isLocalHost) return;
+        if (!payload || payload.roomId !== roomId) return;
+
+        setPlayers(payload.players);
+        setBoardChain(payload.boardChain);
+        setHeadValue(payload.headValue);
+        setTailValue(payload.tailValue);
+        setBoneyard(payload.boneyard);
+        setCurrentTurnSeat(payload.currentTurnSeat);
+        setTurnTimeLeft(payload.turnTimeLeft);
+        setGameStatus(payload.gameStatus);
+        setConsecutivePasses(payload.consecutivePasses);
+        setRoundNumber(payload.roundNumber);
+        setWinner(payload.winner);
+        setAllHandsCache(payload.allHandsCache);
+
+        setSelectedTile(null);
+        setIsLobbyOpen(false);
+        setIsJoinPromptOpen(false);
+        setIsShareModalOpen(false);
+        setMessage('');
+      }
+    );
+
+    channel.subscribe();
+
+    return () => {
+      if (gameChannelRef.current === channel) {
+        gameChannelRef.current = null;
+      }
+
+      void supabase.removeChannel(channel);
+    };
+  }, [roomId, isLocalHost]);
+
 
   /**
    * Start New Game / Shuffle Dominoes
    */
   const startNewRound = () => {
+    if (!isLocalHost) return;
     if (activeHumanPlayers.length < 2) {
       setIsShareModalOpen(true);
       return;
@@ -358,6 +421,34 @@ export default function App() {
         'low'
       );
       setAntiCheatLogs(antiCheat.getLogs());
+
+      // ======================================================
+      // HOST BROADCAST
+      // Guest tidak mengocok/deal ulang.
+      // Guest menerima hasil persis dari Host.
+      // ======================================================
+
+      if (roomId && gameChannelRef.current && isLocalHost) {
+        void gameChannelRef.current.send({
+          type: 'broadcast',
+          event: 'game_state',
+          payload: {
+            roomId,
+            players: updatedPlayers,
+            boardChain: [],
+            headValue: null,
+            tailValue: null,
+            boneyard: market,
+            currentTurnSeat: starterSeat,
+            turnTimeLeft: TURN_TIME_LIMIT,
+            gameStatus: 'PLAYING',
+            consecutivePasses: 0,
+            roundNumber,
+            winner: null,
+            allHandsCache: handsMap,
+          },
+        });
+      }
     }, 1600);
   };
 
@@ -754,16 +845,16 @@ export default function App() {
 
   const handleSendSticker = (targetSeat: number, stickerType: StickerEvent['stickerType']) => {
     const iconMap = {
-      tomato: '🍅',
-      egg: '🥚',
-      beer: '🍺',
-      bomb: '💣',
-      rose: '🌹',
-      coins: '💰',
-      laugh: '😂',
-      cry: '😭',
-      rage: '😡',
-      cool: '😎',
+      tomato: 'ðŸ…',
+      egg: 'ðŸ¥š',
+      beer: 'ðŸº',
+      bomb: 'ðŸ’£',
+      rose: 'ðŸŒ¹',
+      coins: 'ðŸ’°',
+      laugh: 'ðŸ˜‚',
+      cry: 'ðŸ˜­',
+      rage: 'ðŸ˜¡',
+      cool: 'ðŸ˜Ž',
     };
 
     const newEvent: StickerEvent = {
@@ -771,7 +862,7 @@ export default function App() {
       fromSeat: localSeatIndex,
       toSeat: targetSeat,
       stickerType,
-      icon: iconMap[stickerType] || '🎯',
+      icon: iconMap[stickerType] || 'ðŸŽ¯',
       label: stickerType,
       timestamp: Date.now(),
     };
@@ -811,7 +902,7 @@ export default function App() {
           <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-amber-600 to-amber-400 p-0.5 shadow-[0_0_12px_rgba(245,158,11,0.5)] shrink-0">
               <div className="w-full h-full bg-slate-950 rounded-[6px] flex items-center justify-center font-cinzel font-bold text-amber-400 text-xs sm:text-sm">
-                🀄
+                ðŸ€„
               </div>
             </div>
             <div className="flex flex-col">
@@ -1022,7 +1113,8 @@ export default function App() {
 
                     {activeHumanPlayers.length >= 2 ? (
                       <button
-                        onClick={startNewRound}
+                        disabled={!isLocalHost}
+                        onClick={isLocalHost ? startNewRound : undefined}
                         className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] sm:text-xs rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95"
                       >
                         <Play className="w-3.5 h-3.5 fill-white" />
@@ -1202,7 +1294,8 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={startNewRound}
+                  disabled={!isLocalHost}
+                        onClick={isLocalHost ? startNewRound : undefined}
                   className="p-2 rounded-xl bg-slate-900/90 border border-slate-700 hover:border-amber-400 text-slate-300 hover:text-white transition-all cursor-pointer active:scale-95"
                   title="Kocok Ulang / Mulai Baru"
                 >
@@ -1344,3 +1437,5 @@ export default function App() {
     </div>
   );
 }
+
+
