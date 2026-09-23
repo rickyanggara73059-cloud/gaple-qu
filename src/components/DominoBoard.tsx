@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+﻿import React, { useRef, useEffect } from 'react';
 import { PlacedTile } from '../types/domino';
 import { DominoTile } from './DominoTile';
 import { ArrowLeft, ArrowRight, ShieldCheck, Layers } from 'lucide-react';
@@ -87,9 +87,9 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
       {/* Main Domino Train Track */}
       <div
         ref={containerRef}
-        className="relative z-10 w-full flex-1 flex items-center px-2 sm:px-8 md:px-16 overflow-x-auto no-scrollbar scroll-smooth py-1"
+        className="relative z-10 w-full min-w-0 flex-1 flex items-center px-1 sm:px-8 md:px-16 overflow-x-auto overflow-y-visible overscroll-x-contain touch-pan-x no-scrollbar scroll-smooth py-2"
       >
-        <div className="flex items-center mx-auto min-w-max py-1">
+        <div className="flex w-max min-w-max shrink-0 items-center mx-auto px-3 sm:px-0 py-2">
           {/* Left End Drop Target Button */}
           {chain.length > 0 && isMyTurn && selectedTile && canPlayLeft && (
             <button
@@ -131,7 +131,7 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
                 return (
                   <div
                     key={pt.id || idx}
-                    className="relative flex items-center transition-all duration-200"
+                    className="relative flex shrink-0 items-center transition-all duration-200"
                   >
                     {/* Seamless Tight Joint: size adjusts on mobile */}
                     <div className="hidden sm:block">
@@ -224,3 +224,4 @@ export const DominoBoard: React.FC<DominoBoardProps> = ({
     </div>
   );
 };
+
