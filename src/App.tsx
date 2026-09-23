@@ -318,6 +318,10 @@ export default function App() {
         seatIndex: number;
       };
 
+  const executeMoveRef = useRef<((seatIndex: number, tile: Tile, end: 'left' | 'right', broadcast?: boolean) => void) | null>(null);
+  const drawFromBoneyardRef = useRef<((seatIndex: number, broadcast?: boolean) => void) | null>(null);
+  const passTurnRef = useRef<((seatIndex: number, broadcast?: boolean) => void) | null>(null);
+
   const broadcastGameAction = (action: GameAction) => {
     if (!roomId || !gameChannelRef.current) return;
 
@@ -330,7 +334,6 @@ export default function App() {
       },
     });
   };
-
 
   useEffect(() => {
     if (!roomId) return;
@@ -345,6 +348,7 @@ export default function App() {
 
     gameChannelRef.current = channel;
 
+    // Guest menerima FULL STATE dari Host.
     channel.on(
       'broadcast',
       { event: 'game_state' },
@@ -373,11 +377,13 @@ export default function App() {
       }
     );
 
-
+    // Hanya Host yang memproses action dari Guest.
     channel.on(
       'broadcast',
       { event: 'game_action' },
       ({ payload }) => {
+        if (!isLocalHost) return;
+
         const incoming = payload as {
           roomId?: string;
           action?: GameAction;
@@ -386,7 +392,7 @@ export default function App() {
         if (!incoming.action || incoming.roomId !== roomId) return;
 
         if (incoming.action.type === 'MOVE') {
-          executeMove(
+          executeMoveRef.current?.(
             incoming.action.seatIndex,
             incoming.action.tile,
             incoming.action.end,
@@ -396,7 +402,7 @@ export default function App() {
         }
 
         if (incoming.action.type === 'DRAW') {
-          drawFromBoneyard(
+          drawFromBoneyardRef.current?.(
             incoming.action.seatIndex,
             false
           );
@@ -404,14 +410,37 @@ export default function App() {
         }
 
         if (incoming.action.type === 'PASS') {
-          passTurn(
+          passTurnRef.current?.(
             incoming.action.seatIndex,
             false
           );
         }
       }
     );
-    channel.subscribe();
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED' && isLocalHost) {
+        void channel.send({
+          type: 'broadcast',
+          event: 'game_state',
+          payload: {
+            roomId,
+            players,
+            boardChain,
+            headValue,
+            tailValue,
+            boneyard,
+            currentTurnSeat,
+            turnTimeLeft,
+            gameStatus,
+            consecutivePasses,
+            roundNumber,
+            winner,
+            allHandsCache,
+          },
+        });
+      }
+    });
 
     return () => {
       if (gameChannelRef.current === channel) {
@@ -422,6 +451,49 @@ export default function App() {
     };
   }, [roomId, isLocalHost]);
 
+
+
+  // ==========================================================
+  // HOST AUTHORITATIVE STATE SYNC
+  // ==========================================================
+  useEffect(() => {
+    if (!roomId || !isLocalHost || !gameChannelRef.current) return;
+
+    void gameChannelRef.current.send({
+      type: 'broadcast',
+      event: 'game_state',
+      payload: {
+        roomId,
+        players,
+        boardChain,
+        headValue,
+        tailValue,
+        boneyard,
+        currentTurnSeat,
+        turnTimeLeft,
+        gameStatus,
+        consecutivePasses,
+        roundNumber,
+        winner,
+        allHandsCache,
+      },
+    });
+  }, [
+    roomId,
+    isLocalHost,
+    players,
+    boardChain,
+    headValue,
+    tailValue,
+    boneyard,
+    currentTurnSeat,
+    turnTimeLeft,
+    gameStatus,
+    consecutivePasses,
+    roundNumber,
+    winner,
+    allHandsCache,
+  ]);
 
   /**
    * Start New Game / Shuffle Dominoes
@@ -532,7 +604,7 @@ export default function App() {
     const timer = setInterval(() => {
       setTurnTimeLeft((prev) => {
         if (prev <= 1) {
-          if (currentTurnSeat === localSeatIndex) {
+          if (isLocalHost) {
             handleTurnTimeout();
           }
           return TURN_TIME_LIMIT;
@@ -577,6 +649,17 @@ export default function App() {
    * Execute Move on the Board
    */
   const executeMove = (seatIndex: number, tile: Tile, end: 'left' | 'right', broadcast = true) => {
+    // Guest tidak menjalankan game secara lokal.
+    // Guest hanya mengirim action ke Host.
+    if (!isLocalHost && broadcast) {
+      broadcastGameAction({
+        type: 'MOVE',
+        seatIndex,
+        tile,
+        end,
+      });
+      return;
+    }
     const player = players[seatIndex];
     if (!player) return;
 
@@ -693,6 +776,15 @@ export default function App() {
    * Draw Tile from Boneyard / Pasar
    */
   const drawFromBoneyard = (seatIndex: number, broadcast = true) => {
+    // Guest tidak menjalankan game secara lokal.
+    // Guest hanya mengirim action ke Host.
+    if (!isLocalHost && broadcast) {
+      broadcastGameAction({
+        type: 'DRAW',
+        seatIndex,
+      });
+      return;
+    }
     if (boneyard.length === 0) {
       passTurn(seatIndex, broadcast);
       return;
@@ -745,6 +837,15 @@ export default function App() {
    * Pass Turn ("Lewat!")
    */
   const passTurn = (seatIndex: number, broadcast = true) => {
+    // Guest tidak menjalankan game secara lokal.
+    // Guest hanya mengirim action ke Host.
+    if (!isLocalHost && broadcast) {
+      broadcastGameAction({
+        type: 'PASS',
+        seatIndex,
+      });
+      return;
+    }
     soundEngine.playPass();
     const pName = players[seatIndex]?.name || 'Pemain';
 
@@ -779,6 +880,12 @@ export default function App() {
   /**
    * Handle Turn Timeout
    */
+
+  // Realtime listener selalu menunjuk handler terbaru.
+  executeMoveRef.current = executeMove;
+  drawFromBoneyardRef.current = drawFromBoneyard;
+  passTurnRef.current = passTurn;
+
   const handleTurnTimeout = () => {
     const seat = currentTurnSeat;
     const pHand = allHandsCache[seat] || [];
@@ -1533,6 +1640,9 @@ export default function App() {
     </div>
   );
 }
+
+
+
 
 
 
