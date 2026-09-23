@@ -184,6 +184,9 @@ export default function App() {
           return;
         }
 
+        // Pastikan lobby utama tidak berada di atas modal undangan.
+        setIsLobbyOpen(false);
+        setIsShareModalOpen(false);
         setRoomCode(roomParam);
         setPendingJoinRoomCode(roomParam);
         setIsJoinPromptOpen(true);
@@ -1437,5 +1440,6 @@ export default function App() {
     </div>
   );
 }
+
 
 
