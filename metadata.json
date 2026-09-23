@@ -1,0 +1,6 @@
+{
+  "name": "Domino Gaple Online Multiplayer",
+  "description": "Game Domino Gaple online multiplayer hingga 5 pemain dengan fitur voice chat, sistem ranking MMR, stiker interaktif, dan anti-cheat canggih.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

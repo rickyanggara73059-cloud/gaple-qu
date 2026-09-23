@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Local backups / patch artifacts
+_backup-before-supabase-room/
+_gaple-patch/
+*.bak
+*.backup
