@@ -302,6 +302,36 @@ export default function App() {
 
   const isLocalHost = localSeatIndex === 0;
 
+  type GameAction =
+    | {
+        type: 'MOVE';
+        seatIndex: number;
+        tile: Tile;
+        end: 'left' | 'right';
+      }
+    | {
+        type: 'DRAW';
+        seatIndex: number;
+      }
+    | {
+        type: 'PASS';
+        seatIndex: number;
+      };
+
+  const broadcastGameAction = (action: GameAction) => {
+    if (!roomId || !gameChannelRef.current) return;
+
+    void gameChannelRef.current.send({
+      type: 'broadcast',
+      event: 'game_action',
+      payload: {
+        roomId,
+        action,
+      },
+    });
+  };
+
+
   useEffect(() => {
     if (!roomId) return;
 
@@ -343,6 +373,44 @@ export default function App() {
       }
     );
 
+
+    channel.on(
+      'broadcast',
+      { event: 'game_action' },
+      ({ payload }) => {
+        const incoming = payload as {
+          roomId?: string;
+          action?: GameAction;
+        };
+
+        if (!incoming.action || incoming.roomId !== roomId) return;
+
+        if (incoming.action.type === 'MOVE') {
+          executeMove(
+            incoming.action.seatIndex,
+            incoming.action.tile,
+            incoming.action.end,
+            false
+          );
+          return;
+        }
+
+        if (incoming.action.type === 'DRAW') {
+          drawFromBoneyard(
+            incoming.action.seatIndex,
+            false
+          );
+          return;
+        }
+
+        if (incoming.action.type === 'PASS') {
+          passTurn(
+            incoming.action.seatIndex,
+            false
+          );
+        }
+      }
+    );
     channel.subscribe();
 
     return () => {
@@ -464,7 +532,9 @@ export default function App() {
     const timer = setInterval(() => {
       setTurnTimeLeft((prev) => {
         if (prev <= 1) {
-          handleTurnTimeout();
+          if (currentTurnSeat === localSeatIndex) {
+            handleTurnTimeout();
+          }
           return TURN_TIME_LIMIT;
         }
 
@@ -480,7 +550,7 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameStatus, currentTurnSeat, players, headValue, tailValue, boneyard]);
+  }, [gameStatus, currentTurnSeat, localSeatIndex, players, headValue, tailValue, boneyard]);
 
   /**
    * Next turn advancement (skips empty seats)
@@ -506,7 +576,7 @@ export default function App() {
   /**
    * Execute Move on the Board
    */
-  const executeMove = (seatIndex: number, tile: Tile, end: 'left' | 'right') => {
+  const executeMove = (seatIndex: number, tile: Tile, end: 'left' | 'right', broadcast = true) => {
     const player = players[seatIndex];
     if (!player) return;
 
@@ -601,6 +671,15 @@ export default function App() {
 
     setAntiCheatLogs(antiCheat.getLogs());
 
+    if (broadcast) {
+      broadcastGameAction({
+        type: 'MOVE',
+        seatIndex,
+        tile,
+        end,
+      });
+    }
+
     // Check Win Condition (Hand Empty)
     if (remainingHand.length === 0) {
       handlePlayerWin(player, false);
@@ -613,9 +692,9 @@ export default function App() {
   /**
    * Draw Tile from Boneyard / Pasar
    */
-  const drawFromBoneyard = (seatIndex: number) => {
+  const drawFromBoneyard = (seatIndex: number, broadcast = true) => {
     if (boneyard.length === 0) {
-      passTurn(seatIndex);
+      passTurn(seatIndex, broadcast);
       return;
     }
 
@@ -649,16 +728,23 @@ export default function App() {
     setAntiCheatLogs(antiCheat.getLogs());
 
     // Check if newly drawn card is playable
+    if (broadcast) {
+      broadcastGameAction({
+        type: 'DRAW',
+        seatIndex,
+      });
+    }
+
     const playable = getPlayableTiles([drawnTile], headValue, tailValue);
     if (playable.length === 0) {
-      passTurn(seatIndex);
+      passTurn(seatIndex, broadcast);
     }
   };
 
   /**
    * Pass Turn ("Lewat!")
    */
-  const passTurn = (seatIndex: number) => {
+  const passTurn = (seatIndex: number, broadcast = true) => {
     soundEngine.playPass();
     const pName = players[seatIndex]?.name || 'Pemain';
 
@@ -673,6 +759,13 @@ export default function App() {
 
     antiCheat.addLog('MOVE_VALIDATED', `${pName} lewat (tidak ada kartu cocok).`, 'low');
     setAntiCheatLogs(antiCheat.getLogs());
+
+    if (broadcast) {
+      broadcastGameAction({
+        type: 'PASS',
+        seatIndex,
+      });
+    }
 
     // If consecutive passes equal active player count -> GAPLE / BUNTU!
     if (nextPassCount >= activeHumanPlayers.length) {
@@ -1440,6 +1533,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
