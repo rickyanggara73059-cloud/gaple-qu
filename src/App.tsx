@@ -84,7 +84,7 @@ export default function App() {
   const [allHandsCache, setAllHandsCache] = useState<{ [seat: number]: Tile[] }>({});
 
   // Modals
-  const [isLobbyOpen, setIsLobbyOpen] = useState(true);
+  const [isLobbyOpen, setIsLobbyOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isJoinPromptOpen, setIsJoinPromptOpen] = useState(false);
   const [pendingJoinRoomCode, setPendingJoinRoomCode] = useState('');
@@ -1689,6 +1689,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
