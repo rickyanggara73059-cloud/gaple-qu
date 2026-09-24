@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { voiceChat } from '../services/voiceChat';
 import { soundEngine } from '../services/soundEffects';
@@ -25,7 +25,12 @@ export const VoiceChatControls: React.FC<VoiceChatControlsProps> = ({ onMicState
       },
     });
 
-    return () => unsub();
+    void voiceChat.initialize();
+
+    return () => {
+      unsub();
+      void voiceChat.destroy();
+    };
   }, []);
 
   const handleToggleMic = async () => {
@@ -146,3 +151,4 @@ export const VoiceChatControls: React.FC<VoiceChatControlsProps> = ({ onMicState
     </div>
   );
 };
+
