@@ -43,6 +43,8 @@ class VoiceChatManager {
 
   private peers = new Map<string, RTCPeerConnection>();
   private remoteAudio = new Map<string, HTMLAudioElement>();
+  private remoteSources = new Map<string, MediaStreamAudioSourceNode>();
+  private remoteGains = new Map<string, GainNode>();
   private pendingIce = new Map<string, RTCIceCandidateInit[]>();
 
   private readonly rtcConfig: RTCConfiguration = {
@@ -312,6 +314,11 @@ class VoiceChatManager {
   public toggleDeafen(): boolean {
     this.isDeafened = !this.isDeafened;
 
+    for (const gain of this.remoteGains.values()) {
+      gain.gain.value =
+        this.isDeafened ? 0 : 1;
+    }
+
     for (const audio of this.remoteAudio.values()) {
       audio.muted = this.isDeafened;
     }
@@ -321,6 +328,21 @@ class VoiceChatManager {
 
   private async cleanupSignaling() {
     await this.closeAllPeers();
+
+    for (const source of this.remoteSources.values()) {
+      try {
+        source.disconnect();
+      } catch {}
+    }
+
+    for (const gain of this.remoteGains.values()) {
+      try {
+        gain.disconnect();
+      } catch {}
+    }
+
+    this.remoteSources.clear();
+    this.remoteGains.clear();
 
     for (const audio of this.remoteAudio.values()) {
       audio.pause();
@@ -505,14 +527,52 @@ class VoiceChatManager {
     };
 
     pc.onconnectionstatechange = () => {
+      console.info(
+        "[VoiceChat] peer " +
+        remoteUserId.slice(0, 8) +
+        " connection=" +
+        pc.connectionState +
+        " ice=" +
+        pc.iceConnectionState
+      );
+
       if (
         pc.connectionState === "failed" ||
         pc.connectionState === "closed"
       ) {
-        void this.closePeer(
-          remoteUserId
+        console.error(
+          "[VoiceChat] koneksi voice gagal ke peer " +
+          remoteUserId.slice(0, 8)
         );
+
+        void this.closePeer(remoteUserId);
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.info(
+        "[VoiceChat] peer " +
+        remoteUserId.slice(0, 8) +
+        " ICE=" +
+        pc.iceConnectionState
+      );
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.info(
+        "[VoiceChat] peer " +
+        remoteUserId.slice(0, 8) +
+        " ICE gathering=" +
+        pc.iceGatheringState
+      );
+    };
+
+    pc.onicecandidateerror = (event) => {
+      console.warn(
+        "[VoiceChat] ICE candidate error peer " +
+        remoteUserId.slice(0, 8),
+        event
+      );
     };
 
     const localTrack =
@@ -759,6 +819,36 @@ class VoiceChatManager {
       );
     }
 
+    const source =
+      this.remoteSources.get(
+        remoteUserId
+      );
+
+    if (source) {
+      try {
+        source.disconnect();
+      } catch {}
+
+      this.remoteSources.delete(
+        remoteUserId
+      );
+    }
+
+    const gain =
+      this.remoteGains.get(
+        remoteUserId
+      );
+
+    if (gain) {
+      try {
+        gain.disconnect();
+      } catch {}
+
+      this.remoteGains.delete(
+        remoteUserId
+      );
+    }
+
     const audio =
       this.remoteAudio.get(
         remoteUserId
@@ -791,10 +881,84 @@ class VoiceChatManager {
     );
   }
 
+
   private attachRemoteAudio(
     remoteUserId: string,
     stream: MediaStream
   ) {
+    console.info(
+      `[VoiceChat] remote audio diterima dari ${remoteUserId.slice(0, 8)}`
+    );
+
+    /*
+     * Use the AudioContext that was already resumed by
+     * the user's microphone click. This avoids relying on
+     * a later HTMLAudioElement autoplay decision.
+     */
+    if (this.audioCtx) {
+      try {
+        const oldSource =
+          this.remoteSources.get(
+            remoteUserId
+          );
+
+        const oldGain =
+          this.remoteGains.get(
+            remoteUserId
+          );
+
+        if (oldSource) {
+          oldSource.disconnect();
+        }
+
+        if (oldGain) {
+          oldGain.disconnect();
+        }
+
+        const source =
+          this.audioCtx.createMediaStreamSource(
+            stream
+          );
+
+        const gain =
+          this.audioCtx.createGain();
+
+        gain.gain.value =
+          this.isDeafened ? 0 : 1;
+
+        source.connect(gain);
+        gain.connect(
+          this.audioCtx.destination
+        );
+
+        this.remoteSources.set(
+          remoteUserId,
+          source
+        );
+
+        this.remoteGains.set(
+          remoteUserId,
+          gain
+        );
+
+        void this.audioCtx.resume();
+
+        console.info(
+          `[VoiceChat] remote audio terhubung ke speaker ${remoteUserId.slice(0, 8)}`
+        );
+
+        return;
+      } catch (error) {
+        console.error(
+          "[VoiceChat] WebAudio remote gagal:",
+          error
+        );
+      }
+    }
+
+    /*
+     * Fallback only when AudioContext is unavailable.
+     */
     let audio =
       this.remoteAudio.get(
         remoteUserId
@@ -835,7 +999,7 @@ class VoiceChatManager {
     void audio.play().catch(
       (error) => {
         console.warn(
-          "[VoiceChat] Remote audio autoplay tertunda:",
+          "[VoiceChat] fallback audio autoplay tertunda:",
           error
         );
       }
@@ -927,3 +1091,5 @@ class VoiceChatManager {
 
 export const voiceChat =
   new VoiceChatManager();
+
+
