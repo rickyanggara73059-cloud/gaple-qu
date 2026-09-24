@@ -71,6 +71,45 @@ class VoiceChatManager {
     return this.isDeafened;
   }
 
+  /*
+   * Explicitly unlock/resume the Web Audio output after a
+   * user gesture. This is important on mobile browsers,
+   * where remote WebRTC audio may otherwise remain silent.
+   */
+  public async enableAudioOutput(): Promise<boolean> {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (
+          window as unknown as {
+            webkitAudioContext: typeof AudioContext;
+          }
+        ).webkitAudioContext;
+
+      if (!this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+
+      if (this.audioCtx.state === "suspended") {
+        await this.audioCtx.resume();
+      }
+
+      console.info(
+        "[VoiceChat] audio output:",
+        this.audioCtx.state
+      );
+
+      return this.audioCtx.state === "running";
+    } catch (error) {
+      console.warn(
+        "[VoiceChat] gagal mengaktifkan audio output:",
+        error
+      );
+
+      return false;
+    }
+  }
+
   public async initialize(): Promise<boolean> {
     try {
       const roomId = window.localStorage.getItem(
@@ -92,6 +131,7 @@ class VoiceChatManager {
         this.roomId === roomId &&
         this.userId === userId
       ) {
+        await this.sendHello();
         return true;
       }
 
@@ -1091,5 +1131,6 @@ class VoiceChatManager {
 
 export const voiceChat =
   new VoiceChatManager();
+
 
 
