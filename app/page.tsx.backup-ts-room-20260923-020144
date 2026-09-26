@@ -1,0 +1,407 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+type Player = {
+  id: string;
+  player_name: string;
+  seat: number;
+  connected: boolean;
+};
+
+type RoomInfo = {
+  room_id: string;
+  room_code: string;
+  player_id: string;
+  seat: number;
+};
+
+export default function Home() {
+  const [playerName, setPlayerName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [room, setRoom] = useState<RoomInfo | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [userReady, setUserReady] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function ensureAnonymousAuth() {
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      if (sessionData.session) {
+        if (mounted) setUserReady(true);
+        return;
+      }
+
+      const { error } = await supabase.auth.signInAnonymously();
+
+      if (mounted) {
+        if (error) {
+          setMessage(`Auth gagal: ${error.message}`);
+          return;
+        }
+
+        setUserReady(true);
+      }
+    }
+
+    ensureAnonymousAuth();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!room?.room_id) return;
+
+    let mounted = true;
+
+    async function loadPlayers() {
+      const { data, error } = await supabase
+        .from("players")
+        .select("id, player_name, seat, connected")
+        .eq("room_id", room.room_id)
+        .order("seat", { ascending: true });
+
+      if (!mounted) return;
+
+      if (error) {
+        setMessage(`Gagal memuat pemain: ${error.message}`);
+        return;
+      }
+
+      setPlayers(data ?? []);
+    }
+
+    loadPlayers();
+
+    const channel = supabase
+      .channel(`domino-room-${room.room_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "players",
+          filter: `room_id=eq.${room.room_id}`,
+        },
+        () => {
+          loadPlayers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [room?.room_id]);
+
+  async function handleCreateRoom() {
+    if (!userReady) {
+      setMessage("Menyiapkan koneksi game...");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const name = playerName.trim() || "Player";
+
+    const { data, error } = await supabase.rpc("create_domino_room", {
+      p_player_name: name,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage(`Gagal membuat room: ${error.message}`);
+      return;
+    }
+
+    const roomInfo = data as RoomInfo;
+
+    setRoom(roomInfo);
+    setPlayers([
+      {
+        id: roomInfo.player_id,
+        player_name: name,
+        seat: roomInfo.seat,
+        connected: true,
+      },
+    ]);
+
+    setMessage("Room berhasil dibuat.");
+  }
+
+  async function handleJoinRoom() {
+    if (!userReady) {
+      setMessage("Menyiapkan koneksi game...");
+      return;
+    }
+
+    const code = joinCode.trim().toUpperCase();
+
+    if (!/^[A-Z0-9]{4}$/.test(code)) {
+      setMessage("Masukkan kode room 4 karakter.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const name = playerName.trim() || "Player";
+
+    const { data, error } = await supabase.rpc("join_domino_room", {
+      p_code: code,
+      p_player_name: name,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      const raw = error.message;
+
+      if (raw.includes("ROOM_NOT_FOUND")) {
+        setMessage("Room tidak ditemukan.");
+      } else if (raw.includes("ROOM_FULL")) {
+        setMessage("Room sudah penuh.");
+      } else if (raw.includes("ROOM_NOT_WAITING")) {
+        setMessage("Game room sudah dimulai.");
+      } else {
+        setMessage(`Gagal join room: ${raw}`);
+      }
+
+      return;
+    }
+
+    setRoom(data as RoomInfo);
+    setMessage(`Berhasil masuk ke room ${code}.`);
+  }
+
+  return (
+    <main className="min-h-screen bg-[#071A24] text-white">
+      <div className="relative min-h-screen overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(200,155,60,0.14),transparent_38%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,rgba(35,104,124,0.18),transparent_35%)]" />
+
+        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-5 py-12">
+          <div className="w-full max-w-2xl">
+            <div className="mb-8 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#C89B3C]">
+                Multiplayer Domino
+              </p>
+
+              <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] sm:text-6xl">
+                DOMINO
+              </h1>
+
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-white/50">
+                Buat room, undang teman, dan bermain domino secara real-time.
+              </p>
+            </div>
+
+            {!room ? (
+              <>
+                <div className="mb-5 rounded-[2rem] border border-white/10 bg-[#0B2632]/90 p-5 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-7">
+                  <div>
+                    <label
+                      htmlFor="player-name"
+                      className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45"
+                    >
+                      Nama Pemain
+                    </label>
+
+                    <input
+                      id="player-name"
+                      type="text"
+                      value={playerName}
+                      onChange={(event) =>
+                        setPlayerName(event.target.value.slice(0, 20))
+                      }
+                      placeholder="Nama kamu"
+                      className="mt-3 w-full rounded-2xl border border-white/10 bg-[#071A24] px-5 py-4 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-[#C89B3C]/70"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCreateRoom}
+                    disabled={loading}
+                    className="mt-5 w-full rounded-2xl bg-[#C89B3C] px-6 py-4 text-sm font-bold uppercase tracking-[0.14em] text-[#071A24] transition hover:bg-[#D8AE55] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {loading ? "Connecting..." : "Create Room"}
+                  </button>
+
+                  <div className="my-7 flex items-center gap-4">
+                    <span className="h-px flex-1 bg-white/10" />
+                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
+                      or
+                    </span>
+                    <span className="h-px flex-1 bg-white/10" />
+                  </div>
+
+                  <label
+                    htmlFor="room-code"
+                    className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45"
+                  >
+                    Join Room
+                  </label>
+
+                  <div className="mt-3 flex gap-3">
+                    <input
+                      id="room-code"
+                      type="text"
+                      value={joinCode}
+                      onChange={(event) =>
+                        setJoinCode(
+                          event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4)
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          handleJoinRoom();
+                        }
+                      }}
+                      placeholder="A7K9"
+                      maxLength={4}
+                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#071A24] px-5 py-4 text-center text-lg font-bold tracking-[0.25em] text-white outline-none transition placeholder:text-white/20 focus:border-[#C89B3C]/70"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleJoinRoom}
+                      disabled={loading}
+                      className="rounded-2xl border border-white/15 px-5 py-4 text-sm font-bold uppercase tracking-[0.12em] transition hover:border-[#C89B3C]/60 hover:bg-white/5 disabled:opacity-50"
+                    >
+                      Join
+                    </button>
+                  </div>
+
+                  {message && (
+                    <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs text-white/50">
+                      {message}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[2rem] border border-[#C89B3C]/25 bg-[#0B2632]/95 p-5 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-7">
+                <div className="text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/35">
+                    Room Code
+                  </p>
+
+                  <p className="mt-3 text-5xl font-bold tracking-[0.25em] text-[#C89B3C]">
+                    {room.room_code}
+                  </p>
+
+                  <p className="mt-3 text-xs text-white/40">
+                    Bagikan kode ini kepada pemain lain.
+                  </p>
+                </div>
+
+                <div className="mt-7 border-t border-white/10 pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                        Players
+                      </p>
+                      <p className="mt-1 text-sm text-white/50">
+                        {players.length} / 4 pemain
+                      </p>
+                    </div>
+
+                    <span className="rounded-full border border-[#C89B3C]/30 bg-[#C89B3C]/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[#C89B3C]">
+                      Waiting
+                    </span>
+                  </div>
+
+                  <div className="mt-5 grid gap-3">
+                    {[1, 2, 3, 4].map((seat) => {
+                      const player = players.find((item) => item.seat === seat);
+
+                      return (
+                        <div
+                          key={seat}
+                          className="flex items-center gap-4 rounded-2xl border border-white/10 bg-[#071A24] px-4 py-4"
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-[#0B2632] text-xs font-bold text-[#C89B3C]">
+                            {seat}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">
+                              {player?.player_name ?? "Waiting for player..."}
+                            </p>
+                            <p className="mt-1 text-[10px] uppercase tracking-[0.15em] text-white/25">
+                              {player ? "Connected" : "Open seat"}
+                            </p>
+                          </div>
+
+                          {player && (
+                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {message && (
+                    <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs text-white/50">
+                      {message}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoom(null);
+                      setPlayers([]);
+                      setMessage("");
+                    }}
+                    className="mt-5 w-full rounded-2xl border border-white/10 px-5 py-3 text-xs font-bold uppercase tracking-[0.15em] text-white/50 transition hover:border-white/20 hover:text-white"
+                  >
+                    Leave Room
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-8 grid grid-cols-3 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">2–4</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Players
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">Realtime</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Multiplayer
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">Online</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Browser
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-8 text-center text-[10px] uppercase tracking-[0.18em] text-white/20">
+              Domino Multiplayer • Online Game
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}

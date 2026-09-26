@@ -7,22 +7,19 @@ import DominoGame from "@/app/components/DominoGame";
 type Player = {
   id: string;
   player_name: string;
-  seat: number;    total_score?: number;
-
+  seat: number;
   connected: boolean;
 };
 
 type RoomInfo = {
   room_id: string;
   room_code: string;
-  target_score: number;
   player_id: string;
   seat: number;
 };
 
 export default function Home() {
   const [playerName, setPlayerName] = useState("");
-  const [targetScore, setTargetScore] = useState(1000);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -118,7 +115,7 @@ export default function Home() {
     async function loadPlayers() {
       const { data, error } = await supabase
         .from("players")
-        .select("id, player_name, seat, connected, total_score")
+        .select("id, player_name, seat, connected")
         .eq("room_id", roomId)
         .order("seat", { ascending: true });
 
@@ -214,14 +211,14 @@ export default function Home() {
        */
       const { data: existingRoom } = await supabase
         .from("rooms")
-        .select("id, code, status, target_score")
+        .select("id, code, status")
         .eq("code", code)
         .maybeSingle();
 
       if (existingRoom) {
         const { data: existingPlayer } = await supabase
           .from("players")
-          .select("id, player_name, seat, connected, total_score")
+          .select("id, player_name, seat, connected")
           .eq("room_id", existingRoom.id)
           .eq("user_id", user.id)
           .maybeSingle();
@@ -230,7 +227,6 @@ export default function Home() {
           setRoom({
             room_id: existingRoom.id,
             room_code: existingRoom.code,
-            target_score: existingRoom.target_score ?? 1000,
             player_id: existingPlayer.id,
             seat: existingPlayer.seat,
           });
@@ -281,7 +277,6 @@ export default function Home() {
     setRoom({
       room_id: rawResult.room_id,
       room_code: roomCode,
-      target_score: rawResult.target_score ?? 1000,
       player_id: rawResult.player_id,
       seat: rawResult.seat,
     });
@@ -301,7 +296,6 @@ export default function Home() {
 
       const { data, error } = await supabase.rpc("create_domino_room", {
         p_player_name: name,
-        p_target_score: targetScore,
       });
 
       if (error) {
@@ -333,7 +327,6 @@ export default function Home() {
       const newRoom: RoomInfo = {
         room_id: rawResult.room_id,
         room_code: roomCode,
-        target_score: rawResult.target_score ?? targetScore,
         player_id: rawResult.player_id,
         seat: rawResult.seat,
       };
@@ -489,18 +482,15 @@ export default function Home() {
   }
 
   const connectedPlayers = players.length;
-  const isPlaying = roomStatus !== "waiting" || gameStarted;
+  const isPlaying = roomStatus === "playing" || gameStarted;
 
   if (isPlaying && room) {
     return (
       <DominoGame
         roomId={room.room_id}
         roomCode={room.room_code}
-        targetScore={room.target_score}
         playerId={room.player_id}
         players={players}
-        isHost={room.seat === 1}
-        matchFinished={roomStatus === "finished"}
         onShare={shareRoom}
         onLeave={leaveRoom}
       />
@@ -548,31 +538,6 @@ export default function Home() {
                       maxLength={24}
                       className="mt-3 w-full rounded-2xl border border-white/10 bg-[#061923] px-5 py-4 text-sm font-medium text-white outline-none transition focus:border-[#C89B3C]/60"
                     />
-                  </div>
-
-                  <div className="mt-5">
-                    <label
-                      htmlFor="target-score"
-                      className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45"
-                    >
-                      Target Score
-                    </label>
-
-                    <select
-                      id="target-score"
-                      value={targetScore}
-                      onChange={(event) =>
-                        setTargetScore(Number(event.target.value))
-                      }
-                      className="mt-3 w-full rounded-2xl border border-white/10 bg-[#061923] px-5 py-4 text-sm font-black text-white outline-none transition focus:border-[#C89B3C]/60"
-                    >
-                      <option value={100}>100 POINT</option>
-                      <option value={250}>250 POINT</option>
-                      <option value={500}>500 POINT</option>
-                      <option value={1000}>1000 POINT</option>
-                      <option value={2000}>2000 POINT</option>
-                      <option value={5000}>5000 POINT</option>
-                    </select>
                   </div>
 
                   <button
@@ -800,14 +765,6 @@ export default function Home() {
     </main>
   );
 }
-
-
-
-
-
-
-
-
 
 
 

@@ -1,0 +1,1022 @@
+﻿"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import VoiceChat from "./VoiceChat";
+import RoomStickers from "./RoomStickers";
+
+type Player = {
+  id: string;
+  player_name: string;
+  seat: number;
+  connected: boolean;
+};
+
+type GameInfo = {
+  id: string;
+  status: "playing" | "finished";
+  current_player_id: string | null;
+  board_left: number | null;
+  board_right: number | null;
+  turn_number: number;
+  winner_player_id: string | null;
+};
+
+type DominoTile = {
+  id: string;
+  tile_key: string;
+  left_value: number;
+  right_value: number;
+  position: number;
+};
+
+type GameScore = {
+  player_id: string;
+  score: number;
+};
+
+type ChatMessage = {
+  id: string;
+  playerId: string;
+  playerName: string;
+  text: string;
+  kind: "chat" | "reaction";
+};
+
+type Props = {
+  roomId: string;
+  roomCode: string;
+  targetScore: number;
+  playerId: string;
+  players: Player[];
+  onShare: () => void;
+  onLeave: () => void;
+  isHost?: boolean;
+  matchFinished?: boolean;
+};
+
+function PipPattern({ value }: { value: number }) {
+  const positions: Record<number, string[]> = {
+    0: [],
+    1: ["center"],
+    2: ["top-left", "bottom-right"],
+    3: ["top-left", "center", "bottom-right"],
+    4: ["top-left", "top-right", "bottom-left", "bottom-right"],
+    5: [
+      "top-left",
+      "top-right",
+      "center",
+      "bottom-left",
+      "bottom-right",
+    ],
+    6: [
+      "top-left",
+      "top-right",
+      "middle-left",
+      "middle-right",
+      "bottom-left",
+      "bottom-right",
+    ],
+  };
+
+  const classes: Record<string, string> = {
+    "top-left": "left-1.5 top-1.5",
+    "top-right": "right-1.5 top-1.5",
+    "middle-left": "left-1.5 top-1/2 -translate-y-1/2",
+    "middle-right": "right-1.5 top-1/2 -translate-y-1/2",
+    center: "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+    "bottom-left": "bottom-1.5 left-1.5",
+    "bottom-right": "bottom-1.5 right-1.5",
+  };
+
+  return (
+    <div className="relative h-8 w-8">
+      {positions[value]?.map((position) => (
+        <span
+          key={position}
+          className={`absolute h-1.5 w-1.5 rounded-full bg-[#111820] shadow-[inset_0_1px_1px_rgba(255,255,255,0.25)] ${classes[position]}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DominoHalf({
+  value,
+  compact = false,
+}: {
+  value: number;
+  compact?: boolean;
+}) {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <div className={compact ? "scale-75" : ""}>
+        <PipPattern value={value} />
+      </div>
+    </div>
+  );
+}
+
+function HandTile({
+  tile,
+  selected,
+  disabled,
+  onClick,
+}: {
+  tile: DominoTile;
+  selected: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "shrink-0 rounded-[0.9rem] transition duration-200",
+        selected
+          ? "scale-105 -translate-y-3 ring-2 ring-[#C89B3C] ring-offset-2 ring-offset-[#071A24]"
+          : "hover:-translate-y-2",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+      ].join(" ")}
+    >
+      <div className="flex h-[118px] w-[68px] flex-col overflow-hidden rounded-[0.9rem] border border-[#B7A888] bg-[linear-gradient(145deg,#f5ecd8,#e7d8b9)] text-[#111820] shadow-[0_8px_18px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.7)] sm:h-[128px] sm:w-[74px]">
+        <DominoHalf value={tile.left_value} />
+
+        <div className="mx-2 h-px bg-[#171717]/25" />
+
+        <DominoHalf value={tile.right_value} />
+      </div>
+    </button>
+  );
+}
+
+function getBoardPlacement(index: number) {
+  const row = Math.floor(index / 7);
+  const slot = index % 7;
+
+  if (row % 2 === 0) {
+    return {
+      row: row + 1,
+      col: slot === 6 ? 7 : slot + 1,
+      vertical: slot === 6,
+    };
+  }
+
+  return {
+    row: row + 1,
+    col: slot === 6 ? 1 : 7 - slot,
+    vertical: slot === 6,
+  };
+}
+
+function BoardTile({
+  tile,
+  vertical = false,
+}: {
+  tile: DominoTile;
+  vertical?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "shrink-0 overflow-hidden rounded-[0.65rem] border border-[#B7A888] bg-[linear-gradient(145deg,#f5ecd8,#e7d8b9)] text-[#111820] shadow-[0_5px_12px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.65)]",
+        vertical
+          ? "flex h-[72px] w-[50px] flex-col sm:h-[82px] sm:w-[56px]"
+          : "flex h-[56px] w-[76px] flex-row sm:h-[60px] sm:w-[84px]",
+      ].join(" ")}
+    >
+      <DominoHalf value={tile.left_value} compact />
+
+      <div
+        className={
+          vertical
+            ? "mx-2 h-px bg-[#171717]/25"
+            : "my-2 w-px bg-[#171717]/25"
+        }
+      />
+
+      <DominoHalf value={tile.right_value} compact />
+    </div>
+  );
+}
+
+function PlayerSeat({
+  player,
+  isSelf,
+  isTurn,
+  positionClass,
+}: {
+  player?: Player;
+  isSelf: boolean;
+  isTurn: boolean;
+  positionClass: string;
+}) {
+  if (!player) {
+    return (
+      <div className={`absolute ${positionClass}`}>
+        <div className="rounded-2xl border border-white/5 bg-black/20 px-4 py-2 text-center backdrop-blur-sm">
+          <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20">
+            Open Seat
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`absolute ${positionClass}`}>
+      <div
+        className={[
+          "min-w-[120px] rounded-2xl border px-3 py-2 backdrop-blur-md transition",
+          isTurn
+            ? "border-[#C89B3C]/60 bg-[#C89B3C]/15 shadow-[0_0_30px_rgba(200,155,60,0.12)]"
+            : "border-white/10 bg-[#061923]/80",
+        ].join(" ")}
+      >
+        <div className="flex items-center gap-2">
+          <div
+            className={[
+              "flex h-8 w-8 items-center justify-center rounded-full text-xs font-black",
+              isSelf
+                ? "bg-[#C89B3C] text-[#071A24]"
+                : "bg-[#0B2632] text-[#C89B3C]",
+            ].join(" ")}
+          >
+            {player.seat}
+          </div>
+
+          <div className="min-w-0">
+            <div className="truncate text-xs font-black text-white">
+              {player.player_name}
+              {isSelf ? " · YOU" : ""}
+            </div>
+
+            <div className="mt-0.5 flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-white/30">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  player.connected ? "bg-emerald-400" : "bg-white/20"
+                }`}
+              />
+              {isTurn ? "TURN" : "CONNECTED"}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function DominoGame({
+  roomId,
+  roomCode,
+  targetScore,
+  playerId,
+  players,
+  onShare,
+  onLeave,
+  isHost = false,
+  matchFinished = false,
+}: Props) {
+  const [game, setGame] = useState<GameInfo | null>(null);
+  const [hand, setHand] = useState<DominoTile[]>([]);
+  const [board, setBoard] = useState<DominoTile[]>([]);
+  const [scores, setScores] = useState<GameScore[]>([]);
+  const [nextRoundLoading, setNextRoundLoading] = useState(false);
+  const [selectedTile, setSelectedTile] = useState<DominoTile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [playingTile, setPlayingTile] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const selfPlayer = players.find((player) => player.id === playerId);
+  const selfSeat = selfPlayer?.seat ?? 1;
+
+  async function loadGame() {
+    const { data: gameData, error: gameError } = await supabase
+      .from("domino_games")
+      .select(
+        "id, status, current_player_id, board_left, board_right, turn_number, winner_player_id"
+      )
+      .eq("room_id", roomId)
+      .maybeSingle();
+
+    if (gameError) {
+      setMessage(`Gagal memuat game: ${gameError.message}`);
+      setLoading(false);
+      return;
+    }
+
+    if (!gameData) {
+      setMessage("Menunggu game...");
+      setLoading(false);
+      return;
+    }
+
+    const gameInfo = gameData as GameInfo;
+
+    setGame(gameInfo);
+
+    const [handResult, boardResult, scoreResult] = await Promise.all([
+      supabase
+        .from("domino_tiles")
+        .select("id, tile_key, left_value, right_value, position")
+        .eq("game_id", gameInfo.id)
+        .eq("owner_player_id", playerId)
+        .eq("zone", "hand")
+        .order("position", { ascending: true }),
+
+      supabase
+        .from("domino_tiles")
+        .select("id, tile_key, left_value, right_value, position")
+        .eq("game_id", gameInfo.id)
+        .eq("zone", "board")
+        .order("position", { ascending: true }),
+    ]);
+
+    if (handResult.error) {
+      setMessage(`Gagal memuat kartu: ${handResult.error.message}`);
+    } else {
+      setHand((handResult.data ?? []) as DominoTile[]);
+    }
+
+    if (boardResult.error) {
+      setMessage(`Gagal memuat board: ${boardResult.error.message}`);
+    } else {
+      setBoard((boardResult.data ?? []) as DominoTile[]);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadGame();
+
+    const channel = supabase
+      .channel(`domino-game-${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "domino_games",
+          filter: `room_id=eq.${roomId}`,
+        },
+        () => {
+          loadGame();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "domino_tiles",
+        },
+        () => {
+          loadGame();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomId, playerId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`domino-chat-${roomId}`, {
+        config: {
+          broadcast: {
+            self: true,
+          },
+        },
+      })
+      .on(
+        "broadcast",
+        { event: "chat" },
+        ({ payload }) => {
+          const incoming = payload as ChatMessage;
+
+          setChatMessages((current) => [
+            ...current.slice(-39),
+            incoming,
+          ]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomId]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  const currentPlayer = players.find(
+    (player) => player.id === game?.current_player_id
+  );
+
+  const isMyTurn = game?.current_player_id === playerId;
+  const isBoardEmpty = board.length === 0;
+
+  function canPlayLeft(tile: DominoTile) {
+    const left = game?.board_left;
+
+    if (isBoardEmpty || left === null || left === undefined) {
+      return true;
+    }
+
+    return tile.left_value === left || tile.right_value === left;
+  }
+
+  function canPlayRight(tile: DominoTile) {
+    const right = game?.board_right;
+
+    if (isBoardEmpty || right === null || right === undefined) {
+      return true;
+    }
+
+    return tile.left_value === right || tile.right_value === right;
+  }
+
+  const hasPlayableMove = hand.some(
+    (tile) =>
+      isBoardEmpty ||
+      canPlayLeft(tile) ||
+      canPlayRight(tile)
+  );
+
+  async function playTile(
+    tile: DominoTile,
+    side: "first" | "left" | "right"
+  ) {
+    if (!game || !isMyTurn || playingTile) return;
+
+    setPlayingTile(true);
+    setMessage("");
+
+    const { error } = await supabase.rpc("play_domino_tile", {
+      p_game_id: game.id,
+      p_tile_id: tile.id,
+      p_side: side,
+    });
+
+    if (error) {
+      const raw = error.message;
+
+      if (raw.includes("NOT_YOUR_TURN")) {
+        setMessage("Bukan giliran kamu.");
+      } else if (raw.includes("INVALID_LEFT_MOVE")) {
+        setMessage("Kartu tidak cocok di kiri.");
+      } else if (raw.includes("INVALID_RIGHT_MOVE")) {
+        setMessage("Kartu tidak cocok di kanan.");
+      } else if (raw.includes("TILE_NOT_YOURS")) {
+        setMessage("Kartu ini bukan milik kamu.");
+      } else {
+        setMessage(`Gagal memainkan kartu: ${raw}`);
+      }
+
+      setPlayingTile(false);
+      return;
+    }
+
+    setSelectedTile(null);
+    setMessage("Kartu dimainkan.");
+    await loadGame();
+    setPlayingTile(false);
+  }
+
+  async function drawTile() {
+    if (!game || !isMyTurn || playingTile) return;
+
+    setPlayingTile(true);
+    setMessage("");
+
+    const { data, error } = await supabase.rpc("draw_domino_tile", {
+      p_game_id: game.id,
+    });
+
+    if (error) {
+      const raw = error.message;
+
+      if (raw.includes("NOT_YOUR_TURN")) {
+        setMessage("Bukan giliran kamu.");
+      } else {
+        setMessage(`Gagal mengambil kartu: ${raw}`);
+      }
+
+      setPlayingTile(false);
+      return;
+    }
+
+    if (data?.status === "drawn") {
+      setMessage(`Kamu mengambil ${data.left_value}|${data.right_value}.`);
+    } else if (data?.status === "passed") {
+      setMessage("Boneyard habis. Giliran dilewati.");
+    }
+
+    await loadGame();
+    setPlayingTile(false);
+  }
+
+  async function startNextRound() {
+    if (!game || !isHost || matchFinished || nextRoundLoading) return;
+
+    setNextRoundLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.rpc("start_domino_game", {
+      p_room_id: roomId,
+    });
+
+    if (error) {
+      if (error.message.includes("MATCH_FINISHED")) {
+        setMessage("Match sudah selesai. Target score sudah tercapai.");
+      } else if (error.message.includes("GAME_ALREADY_STARTED")) {
+        setMessage("Ronde berikutnya sudah dimulai.");
+      } else {
+        setMessage(`Gagal memulai ronde berikutnya: ${error.message}`);
+      }
+
+      setNextRoundLoading(false);
+      return;
+    }
+
+    setSelectedTile(null);
+    setMessage("Ronde berikutnya dimulai.");
+
+    await loadGame();
+
+    setNextRoundLoading(false);
+  }
+
+  function selectTile(tile: DominoTile) {
+    if (!isMyTurn || playingTile) return;
+
+    if (isBoardEmpty) {
+      void playTile(tile, "first");
+      return;
+    }
+
+    setSelectedTile((current) =>
+      current?.id === tile.id ? null : tile
+    );
+  }
+
+  async function sendChat(text: string, kind: "chat" | "reaction") {
+    const trimmed = text.trim();
+
+    if (!trimmed || !selfPlayer) return;
+
+    const channel = supabase.getChannels().find(
+      (item) => item.topic === `realtime:domino-chat-${roomId}`
+    );
+
+    if (!channel) return;
+
+    const payload: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      playerId,
+      playerName: selfPlayer.player_name,
+      text: trimmed,
+      kind,
+    };
+
+    await channel.send({
+      type: "broadcast",
+      event: "chat",
+      payload,
+    });
+  }
+
+  async function handleSendChat() {
+    const text = chatInput.trim();
+
+    if (!text) return;
+
+    setChatInput("");
+    await sendChat(text.slice(0, 120), "chat");
+  }
+
+  function relativePosition(seat: number) {
+    if (players.length === 2) {
+      return seat === selfSeat ? 0 : 2;
+    }
+
+    return (seat - selfSeat + 4) % 4;
+  }
+
+  function positionClass(seat: number) {
+    const position = relativePosition(seat);
+
+    if (position === 0) {
+      return "bottom-4 left-1/2 -translate-x-1/2";
+    }
+
+    if (position === 1) {
+      return "right-2 top-1/2 -translate-y-1/2";
+    }
+
+    if (position === 2) {
+      return "top-2 left-1/2 -translate-x-1/2";
+    }
+
+    return "left-2 top-1/2 -translate-y-1/2";
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[#071A24] p-4 text-white sm:p-6">
+        <div className="mx-auto flex min-h-[90vh] max-w-7xl items-center justify-center rounded-[2rem] border border-white/10 bg-[#061923]">
+          <div className="text-sm font-bold text-white/40">
+            Menyiapkan room domino...
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#071A24] text-white">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col">
+        <header className="flex items-center justify-between gap-3 border-b border-white/10 bg-[#061923]/95 px-4 py-3 backdrop-blur-xl sm:px-6">
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.25em] text-[#C89B3C]">
+              Domino Room
+            </p>
+
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-sm font-black tracking-[0.18em] sm:text-base">
+                {roomCode}
+              </span>
+
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.12em] text-emerald-300">
+                {game?.status === "finished" ? "FINISHED" : "PLAYING"}
+              </span>
+            </div>
+            <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.15em] text-white/25">
+              Target {targetScore}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onShare}
+              className="rounded-xl border border-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-[0.12em] text-white/60 transition hover:bg-white/5 hover:text-white sm:px-4"
+            >
+              SHARE
+            </button>
+
+            <button
+              type="button"
+              onClick={onLeave}
+              className="rounded-xl border border-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-[0.12em] text-white/35 transition hover:bg-white/5 hover:text-white sm:px-4"
+            >
+              LEAVE
+            </button>
+          </div>
+        </header>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="flex min-h-0 flex-col p-3 sm:p-5 lg:p-6">
+            <div className="relative min-h-[570px] flex-1 overflow-hidden rounded-[2.2rem] border border-[#C89B3C]/20 bg-[#0A2029] shadow-2xl shadow-black/20">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(200,155,60,0.08),transparent_42%)]" />
+
+              <div className="absolute inset-[12%] rounded-[45%] border border-[#C89B3C]/20 bg-[radial-gradient(circle_at_center,#123F37,#09251F_70%)] shadow-[inset_0_0_80px_rgba(0,0,0,0.35),0_20px_80px_rgba(0,0,0,0.25)]">
+                <div className="absolute inset-4 rounded-[43%] border border-white/5" />
+
+                {players.map((player) => (
+                  <PlayerSeat
+                    key={player.id}
+                    player={player}
+                    isSelf={player.id === playerId}
+                    isTurn={player.id === game?.current_player_id}
+                    positionClass={positionClass(player.seat)}
+                  />
+                ))}
+
+                {players.length < 4 &&
+                  [1, 2, 3, 4]
+                    .filter(
+                      (seat) =>
+                        !players.some((player) => player.seat === seat)
+                    )
+                    .map((seat) => (
+                      <PlayerSeat
+                        key={`empty-${seat}`}
+                        player={undefined}
+                        isSelf={false}
+                        isTurn={false}
+                        positionClass={positionClass(seat)}
+                      />
+                    ))}
+
+                <div className="absolute inset-[12%_5%] flex items-center justify-center">
+                  <div className="relative mx-auto h-full w-full bg-transparent p-0">
+                    <div className="pointer-events-none absolute left-2 right-2 top-0 z-10 mb-3 flex items-center justify-between">
+                      <span className="text-[9px] font-black uppercase tracking-[0.22em] text-white/30">
+                        Domino Table
+                      </span>
+
+                      <span className="text-[9px] font-bold text-white/25">
+                        Turn {game?.turn_number ?? 1}
+                      </span>
+                    </div>
+
+                    {board.length === 0 ? (
+                      <div className="flex min-h-32 items-center justify-center rounded-2xl border border-dashed border-white/10">
+                        <div className="text-center">
+                          <div className="text-sm font-black text-white/35">
+                            TABLE READY
+                          </div>
+
+                          <div className="mt-1 text-[10px] text-white/20">
+                            Kartu pertama menunggu.
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid h-full w-full grid-cols-7 auto-rows-[68px] content-center gap-1 overflow-hidden bg-transparent p-2 sm:auto-rows-[82px] sm:p-3">
+                        {board.map((tile, index) => {
+                          const placement = getBoardPlacement(index);
+
+                          return (
+                            <div
+                              key={tile.id}
+                              className="flex items-center justify-center transition-all duration-300"
+                              style={{
+                                gridColumn: placement.col,
+                                gridRow: placement.row,
+                              }}
+                            >
+                              <BoardTile
+                                tile={tile}
+                                vertical={placement.vertical}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="hidden">
+                      <div
+                        className={[
+                          "rounded-full border px-4 py-2 text-[9px] font-black uppercase tracking-[0.15em]",
+                          isMyTurn
+                            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                            : "border-white/10 bg-white/5 text-white/35",
+                        ].join(" ")}
+                      >
+                        {game?.status === "finished"
+                          ? "GAME SELESAI"
+                          : isMyTurn
+                            ? "GILIRAN KAMU"
+                            : `GILIRAN ${
+                                currentPlayer?.player_name ?? "PEMAIN"
+                              }`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/10 bg-[#061923]/85 px-3 py-2 text-center backdrop-blur-xl sm:inset-x-8">
+                <div className="text-[10px] text-white/40">
+                  {message ||
+                    (isMyTurn
+                      ? isBoardEmpty
+                        ? "Pilih kartu untuk memulai permainan."
+                        : hasPlayableMove
+                          ? "Pilih kartu yang ingin dimainkan."
+                          : "Tidak ada kartu yang cocok — ambil kartu."
+                      : `Menunggu ${
+                          currentPlayer?.player_name ?? "pemain"
+                        } bermain.`)}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-[1.8rem] border border-white/10 bg-[#061923] p-3 sm:p-4">
+              <div className="mb-3 flex items-center justify-between px-1">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[#C89B3C]">
+                    Your Hand
+                  </p>
+
+                  <p className="mt-1 text-xs font-bold text-white/40">
+                    {hand.length} kartu
+                  </p>
+                </div>
+
+                <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/25">
+                  Seat {selfSeat}
+                </div>
+              </div>
+
+              {selectedTile && isMyTurn && !isBoardEmpty && (
+                <div className="mb-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void playTile(selectedTile, "left")}
+                    disabled={
+                      playingTile || !canPlayLeft(selectedTile)
+                    }
+                    className="flex-1 rounded-xl bg-[#C89B3C] px-3 py-3 text-[9px] font-black tracking-[0.14em] text-[#071A24] disabled:cursor-not-allowed disabled:opacity-25"
+                  >
+                    ← KIRI
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void playTile(selectedTile, "right")}
+                    disabled={
+                      playingTile || !canPlayRight(selectedTile)
+                    }
+                    className="flex-1 rounded-xl bg-[#C89B3C] px-3 py-3 text-[9px] font-black tracking-[0.14em] text-[#071A24] disabled:cursor-not-allowed disabled:opacity-25"
+                  >
+                    KANAN →
+                  </button>
+                </div>
+              )}
+
+              {isMyTurn &&
+                !isBoardEmpty &&
+                !hasPlayableMove && (
+                  <button
+                    type="button"
+                    onClick={() => void drawTile()}
+                    disabled={playingTile}
+                    className="mb-3 w-full rounded-xl border border-[#C89B3C]/30 bg-[#C89B3C]/10 px-4 py-3 text-[9px] font-black uppercase tracking-[0.15em] text-[#C89B3C] transition hover:bg-[#C89B3C]/15 disabled:opacity-40"
+                  >
+                    {playingTile ? "MENGAMBIL KARTU..." : "AMBIL KARTU"}
+                  </button>
+                )}
+
+              <div className="overflow-x-auto pb-2">
+                <div className="flex min-w-max items-end gap-2 px-1 pt-3">
+                  {hand.map((tile) => (
+                    <HandTile
+                      key={tile.id}
+                      tile={tile}
+                      selected={selectedTile?.id === tile.id}
+                      disabled={!isMyTurn || playingTile}
+                      onClick={() => selectTile(tile)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside className="flex min-h-[420px] flex-col border-t border-white/10 bg-[#061923] lg:min-h-0 lg:border-l lg:border-t-0">
+            <div className="border-b border-white/10 px-4 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[#C89B3C]">
+                    Room Chat
+                  </p>
+
+                  <p className="mt-1 text-xs text-white/30">
+                    Interaksi pemain realtime
+                  </p>
+                </div>
+
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.12em] text-emerald-300">
+                  LIVE
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col">
+              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                {chatMessages.length === 0 ? (
+                  <div className="flex min-h-48 items-center justify-center text-center">
+                    <div>
+                      <div className="text-sm font-black text-white/30">
+                        Room terbuka
+                      </div>
+
+                      <div className="mt-1 text-[10px] text-white/20">
+                        Sapa pemain lain di sini.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  chatMessages.map((chat) => (
+                    <div
+                      key={chat.id}
+                      className={
+                        chat.playerId === playerId
+                          ? "flex justify-end"
+                          : "flex justify-start"
+                      }
+                    >
+                      <div
+                        className={[
+                          "max-w-[88%] rounded-2xl px-3 py-2",
+                          chat.kind === "reaction"
+                            ? "bg-[#C89B3C]/10"
+                            : chat.playerId === playerId
+                              ? "bg-[#C89B3C]/15"
+                              : "bg-white/[0.04]",
+                        ].join(" ")}
+                      >
+                        <div className="text-[8px] font-bold uppercase tracking-[0.12em] text-white/25">
+                          {chat.playerName}
+                        </div>
+
+                        <div
+                          className={[
+                            "mt-1 whitespace-pre-wrap break-words",
+                            chat.kind === "reaction"
+                              ? "text-2xl"
+                              : "text-xs text-white/70",
+                          ].join(" ")}
+                        >
+                          {chat.text}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                <div ref={chatEndRef} />
+              </div>
+
+              <div className="border-t border-white/10 p-3">
+                <RoomStickers
+                  roomId={roomId}
+                  playerId={playerId}
+                  playerName={selfPlayer?.player_name ?? "Player"}
+                />
+                <div className="mb-2 flex gap-2">
+                  {["👋", "👍", "🔥", "😂"].map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => void sendChat(emoji, "reaction")}
+                      className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-base transition hover:bg-white/[0.06]"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void handleSendChat();
+                      }
+                    }}
+                    maxLength={120}
+                    placeholder="Ketik pesan..."
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#071A24] px-3 py-3 text-xs text-white outline-none placeholder:text-white/20 focus:border-[#C89B3C]/40"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSendChat()}
+                    disabled={!chatInput.trim()}
+                    className="rounded-xl bg-[#C89B3C] px-4 text-[9px] font-black tracking-[0.1em] text-[#071A24] disabled:opacity-30"
+                  >
+                    SEND
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

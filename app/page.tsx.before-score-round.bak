@@ -7,8 +7,7 @@ import DominoGame from "@/app/components/DominoGame";
 type Player = {
   id: string;
   player_name: string;
-  seat: number;    total_score?: number;
-
+  seat: number;
   connected: boolean;
 };
 
@@ -118,7 +117,7 @@ export default function Home() {
     async function loadPlayers() {
       const { data, error } = await supabase
         .from("players")
-        .select("id, player_name, seat, connected, total_score")
+        .select("id, player_name, seat, connected")
         .eq("room_id", roomId)
         .order("seat", { ascending: true });
 
@@ -221,7 +220,7 @@ export default function Home() {
       if (existingRoom) {
         const { data: existingPlayer } = await supabase
           .from("players")
-          .select("id, player_name, seat, connected, total_score")
+          .select("id, player_name, seat, connected")
           .eq("room_id", existingRoom.id)
           .eq("user_id", user.id)
           .maybeSingle();
@@ -489,7 +488,7 @@ export default function Home() {
   }
 
   const connectedPlayers = players.length;
-  const isPlaying = roomStatus !== "waiting" || gameStarted;
+  const isPlaying = roomStatus === "playing" || gameStarted;
 
   if (isPlaying && room) {
     return (
@@ -499,8 +498,6 @@ export default function Home() {
         targetScore={room.target_score}
         playerId={room.player_id}
         players={players}
-        isHost={room.seat === 1}
-        matchFinished={roomStatus === "finished"}
         onShare={shareRoom}
         onLeave={leaveRoom}
       />
@@ -800,8 +797,6 @@ export default function Home() {
     </main>
   );
 }
-
-
 
 
 

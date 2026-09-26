@@ -1,0 +1,174 @@
+"use client";
+
+import { useState } from "react";
+
+function generateRoomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+
+  for (let i = 0; i < 4; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+
+  return code;
+}
+
+export default function Home() {
+  const [roomCode, setRoomCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [message, setMessage] = useState("");
+
+  function handleCreateRoom() {
+    const code = generateRoomCode();
+    setRoomCode(code);
+    setJoinCode("");
+    setMessage("Room berhasil dibuat. Bagikan kode ini ke teman.");
+  }
+
+  function handleJoinRoom() {
+    const code = joinCode.trim().toUpperCase();
+
+    if (!/^[A-Z0-9]{4}$/.test(code)) {
+      setMessage("Masukkan kode room 4 karakter.");
+      return;
+    }
+
+    setRoomCode(code);
+    setMessage(`Bergabung ke room ${code}.`);
+  }
+
+  return (
+    <main className="min-h-screen bg-[#071A24] text-white">
+      <div className="relative min-h-screen overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(200,155,60,0.14),transparent_38%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,rgba(35,104,124,0.16),transparent_35%)]" />
+
+        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-5 py-12">
+          <div className="w-full max-w-xl">
+            <div className="mb-8 text-center">
+              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#C89B3C]/40 bg-[#0B2632] text-2xl shadow-2xl shadow-black/20">
+                ◆
+              </div>
+
+              <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#C89B3C]">
+                Multiplayer Domino
+              </p>
+
+              <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] sm:text-6xl">
+                DOMINO
+              </h1>
+
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-white/50">
+                Main domino online bersama teman. Buat room, bagikan kode,
+                lalu mulai permainan.
+              </p>
+            </div>
+
+            <div className="rounded-[2rem] border border-white/10 bg-[#0B2632]/90 p-5 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-7">
+              <button
+                type="button"
+                onClick={handleCreateRoom}
+                className="w-full rounded-2xl bg-[#C89B3C] px-6 py-4 text-sm font-bold uppercase tracking-[0.14em] text-[#071A24] transition hover:bg-[#D8AE55] hover:shadow-lg hover:shadow-[#C89B3C]/10"
+              >
+                Create Room
+              </button>
+
+              {roomCode && (
+                <div className="mt-5 rounded-2xl border border-[#C89B3C]/25 bg-[#071A24] p-5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/40">
+                    Room Code
+                  </p>
+
+                  <p className="mt-3 text-4xl font-bold tracking-[0.22em] text-[#C89B3C]">
+                    {roomCode}
+                  </p>
+
+                  <p className="mt-3 text-xs text-white/40">
+                    Bagikan kode ini kepada pemain lain.
+                  </p>
+                </div>
+              )}
+
+              <div className="my-7 flex items-center gap-4">
+                <span className="h-px flex-1 bg-white/10" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
+                  or
+                </span>
+                <span className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="room-code"
+                  className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45"
+                >
+                  Join Room
+                </label>
+
+                <div className="mt-3 flex gap-3">
+                  <input
+                    id="room-code"
+                    type="text"
+                    value={joinCode}
+                    onChange={(event) =>
+                      setJoinCode(event.target.value.toUpperCase().slice(0, 4))
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        handleJoinRoom();
+                      }
+                    }}
+                    placeholder="A7K9"
+                    maxLength={4}
+                    className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#071A24] px-5 py-4 text-center text-lg font-bold tracking-[0.25em] text-white outline-none transition placeholder:text-white/20 focus:border-[#C89B3C]/70"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleJoinRoom}
+                    className="rounded-2xl border border-white/15 px-5 py-4 text-sm font-bold uppercase tracking-[0.12em] text-white transition hover:border-[#C89B3C]/60 hover:bg-white/5"
+                  >
+                    Join
+                  </button>
+                </div>
+              </div>
+
+              {message && (
+                <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs text-white/50">
+                  {message}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 grid grid-cols-3 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">2–4</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Players
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">Real-time</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Multiplayer
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#0B2632]/60 px-4 py-4 text-center">
+                <p className="text-lg font-semibold">Online</p>
+                <p className="mt-1 text-[9px] uppercase tracking-[0.15em] text-white/30">
+                  Browser
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-8 text-center text-[10px] uppercase tracking-[0.18em] text-white/20">
+              Domino Multiplayer • Lombok Digital Game
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
