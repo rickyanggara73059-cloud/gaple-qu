@@ -1,4 +1,4 @@
-﻿import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 
 export interface VoiceChatListener {
   onLevelChange: (level: number, isSpeaking: boolean) => void;
@@ -504,14 +504,30 @@ class VoiceChatManager {
      * Deterministic initiator:
      * the lexicographically smaller user id
      * sends the offer.
+     *
+     * Repeated hello messages must not destroy
+     * an existing active WebRTC negotiation.
      */
+    const existingPeer =
+      this.peers.get(remoteUserId);
+
+    if (
+      existingPeer &&
+      existingPeer.connectionState !== "closed" &&
+      existingPeer.connectionState !== "failed"
+    ) {
+      return;
+    }
+
     const initiator =
       Boolean(this.userId) &&
       this.userId! < remoteUserId;
 
-    await this.closePeer(
-      remoteUserId
-    );
+    if (existingPeer) {
+      await this.closePeer(
+        remoteUserId
+      );
+    }
 
     await this.createPeer(
       remoteUserId,
